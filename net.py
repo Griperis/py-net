@@ -77,7 +77,7 @@ class Network:
     def error_d(self, output, truth):
         return output - truth
     
-    def update_weights(self, img, learning_rate, momentum=0.5):
+    def update_weights(self, img, learning_rate, momentum):
         for i in range(len(self.weights)):
             output = img if i == 0 else self.outputs[i - 1]
             delta = self.deltas[i]
@@ -88,20 +88,33 @@ class Network:
     def predict(self, img):
         return int(np.argmax(self.feedforward(img)))
 
-    def train(self, X, Y, epochs, learning_rate=0.008, momentum=0.5):
-        nr_correct = 0
+    def split_train_set(self, X, Y, split):
+        indices = np.random.permutation(X.shape[0])
+        X = X[indices]
+        Y = Y[indices]
+        validation_size = X.shape[0] * split
+        train_size = int(X.shape[0] - validation_size)
+        return (X[:train_size], Y[:train_size], X[train_size:], Y[train_size:])
+
+    def train(self, X, Y, epochs, learning_rate=0.008, momentum=0.0, validation_split=0.0):
         for epoch in range(epochs):
-            for img, label in zip(X, Y):
+            train_X, train_Y, val_X, val_Y = self.split_train_set(X, Y, validation_split)
+            for img, label in zip(train_X, train_Y):
                 img.shape += (1,)
                 label.shape += (1,)
                 output = self.feedforward(img)
                 one_hot_truth = one_hot(label)
-                # TODO: training set prediction (this is just to validate accuracy)
-                nr_correct += int(np.argmax(output) == np.argmax(one_hot_truth))
                 self.backprop(output, one_hot_truth)
                 self.update_weights(img, learning_rate, momentum)
         
-            print(f"Train data acc [{epoch}]: {round((nr_correct / X.shape[0]) * 100, 2)}%")
+            nr_correct = 0
+            for v_img, v_label in zip(val_X, val_Y):
+                v_img.shape += (1,)
+                v_label.shape += (1,)
+                output = self.feedforward(v_img)
+                nr_correct += int(np.argmax(output) == np.argmax(one_hot(v_label)))
+
+            print(f"Train acc [{epoch}]: {round((nr_correct / val_X.shape[0]) * 100, 2)}%")
             nr_correct = 0
 
 
@@ -174,7 +187,7 @@ def fashion():
 
     net = Network(arch)
     (x_train, y_train), (x_test, y_test) = [(x.reshape((len(x), 784)).astype(float)/255, K.utils.to_categorical(y)) for x, y in K.datasets.fashion_mnist.load_data()]
-    net.train(x_train, y_train, 64, 0.08, 0)
+    net.train(x_train, y_train, 64, learning_rate=0.08, validation_split=0.1)
     
     nr_correct = 0
     for img, l in zip(x_test, y_test):
