@@ -1,4 +1,5 @@
 import numpy as np
+import time
 from tensorflow import keras as K # Used for fashion mnist dataset
 
 def one_hot(v):
@@ -16,6 +17,7 @@ class Network:
         self.inner_potentials = [] # z = W.x + b
         self.outputs = [] # o(z)
         self.deltas = []
+        self.prev_deltas = [] # used for momentum
         self.layers = layers
         c = 0.5 # Constant to multiply random weights with
         for i in range(len(layers) - 1):
@@ -29,10 +31,10 @@ class Network:
             # Inner potentials and outputs to None for further use
             self.inner_potentials.append(None)
             self.outputs.append(None)
-            self.deltas.append(None)
+            self.deltas.append(np.zeros((output_size, 1)))
+            self.prev_deltas.append(np.zeros((output_size, 1)))
 
-    def init_weights(self, weights, biases):
-        """Constructor to test the network with initialized weights and biases"""
+    def set_weights(self, weights, biases):
         self.weights = weights
         self.biases = biases
 
@@ -53,6 +55,7 @@ class Network:
         return self.outputs[-1]
 
     def backprop(self, o, t):
+        self.prev_deltas = self.deltas.copy() # store deltas before updating them for momentum
         self.deltas[-1] = self.error_d(o, t) # output - target (target should be one hot value)
         if len(self.layers) == 2:
             return
@@ -62,7 +65,6 @@ class Network:
         for i in range(len(self.weights) - 2, -1, -1):
             act_func_d = self.layers[i + 1][2]
             prev_delta = self.deltas[i + 1]
-            # TODO: should this be i + 1 or i?
             prev_z = self.inner_potentials[i]
             W = self.weights[i + 1]
             delta_hidden = np.matmul(np.transpose(W), prev_delta) * act_func_d(prev_z)
@@ -75,20 +77,18 @@ class Network:
     def error_d(self, output, truth):
         return output - truth
     
-    def update_weights(self, learning_rate, img):
+    def update_weights(self, img, learning_rate, momentum=0.5):
         for i in range(len(self.weights)):
-            if i == 0:
-                output = img
-            else:
-                output = self.outputs[i - 1]
+            output = img if i == 0 else self.outputs[i - 1]
             delta = self.deltas[i]
-            self.weights[i] += -learning_rate * np.matmul(delta, np.transpose(output))
-            self.biases[i] += -learning_rate * delta
+            prev_delta = self.prev_deltas[i]
+            self.weights[i] += -learning_rate * np.matmul(delta + momentum * prev_delta, np.transpose(output))
+            self.biases[i] += -learning_rate * delta + momentum * prev_delta
 
     def predict(self, img):
         return int(np.argmax(self.feedforward(img)))
 
-    def train(self, X, Y, epochs, learning_rate=0.008):
+    def train(self, X, Y, epochs, learning_rate=0.008, momentum=0.5):
         nr_correct = 0
         for epoch in range(epochs):
             for img, label in zip(X, Y):
@@ -99,7 +99,7 @@ class Network:
                 # TODO: training set prediction (this is just to validate accuracy)
                 nr_correct += int(np.argmax(output) == np.argmax(one_hot_truth))
                 self.backprop(output, one_hot_truth)
-                self.update_weights(learning_rate, img)
+                self.update_weights(img, learning_rate, momentum)
         
             print(f"Train data acc [{epoch}]: {round((nr_correct / X.shape[0]) * 100, 2)}%")
             nr_correct = 0
@@ -110,8 +110,8 @@ def relu(V):
 
 
 def relu_d(V):
-    V[V<=0] = 0
-    V[V>0] = 1
+    V[V<=0] = 0.0
+    V[V>0] = 1.0
     return V
 
 
@@ -155,7 +155,7 @@ def xor():
         (1, step, tanh_d)
     ]
     net = Network(arch)
-    net.init_weights(XOR["weights"], XOR["biases"])
+    net.set_weights(XOR["weights"], XOR["biases"])
     net.feedforward(np.array([0, 1]).reshape(2, 1))
     net.feedforward(np.array([1, 1]).reshape(2, 1))
     net.feedforward(np.array([1, 0]).reshape(2, 1))
@@ -163,17 +163,18 @@ def xor():
 
 
 def fashion():
-    np.random.seed(10)
+    s_time = time.time()
+    np.random.seed(5)
     arch = [
         # Set input functions for first layer to None to have sensible error
         (784, None, None),
-        (128, sigmoid, sigmoid_d),
+        #(128, sigmoid, sigmoid_d),
         (10, softmax, sigmoid_d)
     ]
 
     net = Network(arch)
     (x_train, y_train), (x_test, y_test) = [(x.reshape((len(x), 784)).astype(float)/255, K.utils.to_categorical(y)) for x, y in K.datasets.fashion_mnist.load_data()]
-    net.train(x_train, y_train, 16, 0.08)
+    net.train(x_train, y_train, 64, 0.08, 0)
     
     nr_correct = 0
     for img, l in zip(x_test, y_test):
@@ -182,8 +183,9 @@ def fashion():
         if int(np.argmax(l)) == net.predict(img):
             nr_correct += 1
 
+    e_time = time.time()
     print(f"Test data acc: {nr_correct/x_test.shape[0]*100:0.2f}%")
-
+    print(f"Execution time {e_time-s_time:0.0f}s")
 
 if __name__ == "__main__":
     np.random.seed(10)
