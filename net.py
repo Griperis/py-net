@@ -25,14 +25,32 @@ class Network:
             output_size = layers[i + 1][0]
 
             # Initialize weights and biases randomly
-            self.weights.append(np.random.randn(output_size, input_size) * c)
-            self.biases.append(np.random.rand(output_size, 1) * c)
+            init_method = layers[i][3]
+            if init_method is None:
+                init_method = '0'
+
+            self.weights.append(self.init_weights(output_size, input_size, init_method))
+            self.biases.append(self.init_weights(output_size, 1, init_method))
 
             # Inner potentials and outputs to None for further use
             self.inner_potentials.append(None)
             self.outputs.append(None)
             self.deltas.append(np.zeros((output_size, 1)))
             self.prev_deltas.append(np.zeros((output_size, 1)))
+
+    def init_weights(self, output_size, input_size, method):
+        if method == 'Xa':
+            return np.random.randn(output_size, input_size) * np.sqrt(1/input_size)
+        elif method == 'He':
+            return np.random.randn(output_size, input_size) * np.sqrt(2/input_size)
+        elif method == 'rnd':
+            return np.random.uniform(-1, 1, (output_size, input_size))
+        elif method == '0':
+            return np.zeros((output_size, input_size))
+        elif method == '1':
+            return np.ones((output_size, input_size))
+        else:
+            raise RuntimeError("Unsupported initialization method")
 
     def set_weights(self, weights, biases):
         self.weights = weights
@@ -180,9 +198,9 @@ def fashion():
     np.random.seed(5)
     arch = [
         # Set input functions for first layer to None to have sensible error
-        (784, None, None),
+        (784, None, None, None),
         #(128, sigmoid, sigmoid_d),
-        (10, softmax, sigmoid_d)
+        (10, softmax, sigmoid_d, 'Xa')
     ]
 
     net = Network(arch)
