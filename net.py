@@ -12,6 +12,7 @@ def one_hot(v):
 class Network:
     def __init__(self, layers):
         """Default network constructor that creates network according to layers"""
+        
         self.weights = []
         self.biases = []
         self.inner_potentials = [] # z = W.x + b
@@ -20,7 +21,12 @@ class Network:
         self.prev_deltas = [] # used for momentum
         self.layers = layers
         c = 0.5 # Constant to multiply random weights with
+
+        self.weights_sum = []
+        self.biases_sum = []
+
         for i in range(len(layers) - 1):
+
             input_size = layers[i][0]
             output_size = layers[i + 1][0]
 
@@ -31,6 +37,9 @@ class Network:
 
             self.weights.append(self.init_weights(output_size, input_size, init_method))
             self.biases.append(self.init_weights(output_size, 1, init_method))
+
+            self.weights_sum.append(self.init_weights(output_size, input_size, '0'))
+            self.biases_sum.append(self.init_weights(output_size, 1, '0'))
 
             # Inner potentials and outputs to None for further use
             self.inner_potentials.append(None)
@@ -100,8 +109,32 @@ class Network:
             output = img if i == 0 else self.outputs[i - 1]
             delta = self.deltas[i]
             prev_delta = self.prev_deltas[i]
-            self.weights[i] += -learning_rate * np.matmul(delta + momentum * prev_delta, np.transpose(output))
-            self.biases[i] += -learning_rate * delta + momentum * prev_delta
+            self.weights[i] += -learning_rate * np.matmul(delta, np.transpose(output))
+            self.biases[i] += -learning_rate * delta
+
+    def add_gradients(self, img, learning_rate, weights_sum, biases_sum):
+        for i in range(len(self.weights)):
+            output = img if i == 0 else self.outputs[i - 1]
+            delta = self.deltas[i]
+            weights_sum[i] += learning_rate * np.matmul(delta, np.transpose(output))
+            biases_sum[i] += learning_rate * delta
+    
+    def update_weights_batch(self, weights_sum, biases_sum, batch_size):
+        for i in range(len(self.weights)):
+            weights_sum[i] = weights_sum[i] / batch_size
+            biases_sum[i] = biases_sum[i] / batch_size
+            self.weights[i] -= weights_sum[i]
+            self.biases[i] -= biases_sum[i]
+
+    def zero_out(self, weights_sum, biases_sum):
+        for i in range(len(self.weights)):
+            for arr in weights_sum[i]:
+                for element in arr:
+                    element = 0.0
+
+            for arr in biases_sum[i]:
+                for element in arr:
+                    element = 0.0
 
     def predict(self, img):
         return int(np.argmax(self.feedforward(img)))
@@ -114,17 +147,31 @@ class Network:
         train_size = int(X.shape[0] - validation_size)
         return (X[:train_size], Y[:train_size], X[train_size:], Y[train_size:])
 
-    def train(self, X, Y, epochs, learning_rate=0.008, momentum=0.0, validation_split=0.0):
+    def train(self, X, Y, epochs, batch_size=32, learning_rate=0.008, momentum=0.0, validation_split=0.0):
+
         for epoch in range(epochs):
             train_X, train_Y, val_X, val_Y = self.split_train_set(X, Y, validation_split)
-            for img, label in zip(train_X, train_Y):
-                img.shape += (1,)
-                label.shape += (1,)
-                output = self.feedforward(img)
-                one_hot_truth = one_hot(label)
-                self.backprop(output, one_hot_truth)
-                self.update_weights(img, learning_rate, momentum)
-        
+
+            indices = list(range(0,train_X.shape[0]))
+            np.random.shuffle(indices)
+            batch_indices = np.array_split(indices, train_X.shape[0] / batch_size)
+
+            for i,batch in enumerate(batch_indices):
+                #print(f"Batch {i}/{len(batch_indices)}")
+                self.zero_out(self.weights_sum, self.biases_sum)
+                for index in batch:
+                    img = train_X[index]
+                    label = train_Y[index]
+                    img.shape += (1,)
+                    label.shape += (1,)
+
+                    output = self.feedforward(img)
+                    one_hot_truth = one_hot(label)
+                    self.backprop(output, one_hot_truth)
+                    self.add_gradients(img, learning_rate, self.weights_sum, self.biases_sum)
+                
+                self.update_weights_batch(self.weights_sum, self.biases_sum, batch_size)
+                    
             nr_correct = 0
             for v_img, v_label in zip(val_X, val_Y):
                 v_img.shape += (1,)
@@ -199,7 +246,7 @@ def fashion():
     arch = [
         # Set input functions for first layer to None to have sensible error
         (784, None, None, None),
-        #(128, sigmoid, sigmoid_d),
+        (128, sigmoid, sigmoid_d, 'Xa'),
         (10, softmax, sigmoid_d, 'Xa')
     ]
 
